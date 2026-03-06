@@ -29,9 +29,9 @@ pub fn run() {
             permissions::check_and_request();
 
             // Build tray menu
+            let switch = MenuItem::with_id(app, "switch", "Switch Windows", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Conjure", true, Some("Cmd+Q"))?;
-            let about = MenuItem::with_id(app, "about", "About Conjure", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&about, &quit])?;
+            let menu = Menu::with_items(app, &[&switch, &quit])?;
 
             let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
                 "../icons/tray-icon.png"
@@ -42,6 +42,7 @@ pub fn run() {
                 .icon_as_template(true)
                 .menu(&menu)
                 .on_menu_event(|app: &AppHandle, event| match event.id.as_ref() {
+                    "switch" => toggle_palette(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -62,9 +63,17 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             windows::list_windows,
             windows::activate_window,
+            hide_palette,
         ])
         .run(tauri::generate_context!())
         .expect("error while running conjure");
+}
+
+#[tauri::command]
+fn hide_palette(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
 }
 
 fn toggle_palette(app: &AppHandle) {

@@ -90,19 +90,20 @@ function moveSelection(delta: number) {
 async function activateSelected() {
   const w = windows[selectedIndex];
   if (!w) return;
-  await hidePalette();
   try {
     await invoke("activate_window", { windowId: w.id, appPid: w.app_pid });
   } catch (e) {
     console.error("activate_window failed:", e);
   }
+  await hidePalette();
 }
 
 async function hidePalette() {
+  isOpen = false;
   searchEl.value = "";
   windows = [];
   resultsEl.innerHTML = "";
-  await appWindow.hide();
+  await invoke("hide_palette");
 }
 
 async function onPaletteOpen() {
@@ -112,7 +113,8 @@ async function onPaletteOpen() {
   searchEl.focus();
 }
 
-// Keyboard handler -- all navigation is keyboard-driven
+// Keyboard handler -- all navigation is keyboard-driven.
+// capture:true ensures we intercept keys before the focused input element does.
 document.addEventListener("keydown", async (e) => {
   if (e.key === "Tab") {
     e.preventDefault();
@@ -135,24 +137,36 @@ document.addEventListener("keydown", async (e) => {
       break;
     case "Escape":
       e.preventDefault();
-      await hidePalette();
+      if (searchEl.value) {
+        searchEl.value = "";
+        loadWindows("");
+      } else {
+        await hidePalette();
+      }
       break;
   }
-});
+}, { capture: true });
 
 searchEl.addEventListener("input", () => {
   loadWindows(searchEl.value);
 });
 
-// Dismiss when window loses focus (user Cmd+Tabs away)
+// Dismiss when window loses focus (user Cmd+Tabs away).
+// isOpen gates this so macOS's transient blur event during window activation
+// (emitted before focus actually lands on the palette) doesn't immediately
+// close it. The flag is set synchronously in the palette-opened listener,
+// which runs before the focus events reach JS.
+let isOpen = false;
+
 appWindow.onFocusChanged(({ payload: focused }) => {
-  if (!focused) {
+  if (!focused && isOpen) {
     hidePalette();
   }
 });
 
 // Listen for palette-opened event from Rust (fired on hotkey press)
 listen("palette-opened", () => {
+  isOpen = true;
   onPaletteOpen();
 });
 
