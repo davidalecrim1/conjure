@@ -1,0 +1,162 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+interface WindowInfo {
+  id: number;
+  app_name: string;
+  app_pid: number;
+  title: string;
+  app_bundle_id: string | null;
+  is_minimized: boolean;
+  display_text: string;
+}
+
+const appWindow = getCurrentWindow();
+let windows: WindowInfo[] = [];
+let selectedIndex = 0;
+
+const searchEl = document.getElementById("search") as HTMLInputElement;
+const resultsEl = document.getElementById("results") as HTMLUListElement;
+
+async function loadWindows(query: string) {
+  try {
+    windows = await invoke<WindowInfo[]>("list_windows", { query });
+  } catch {
+    windows = [];
+  }
+  selectedIndex = 0;
+  render();
+}
+
+function render() {
+  resultsEl.innerHTML = "";
+
+  if (windows.length === 0) {
+    const li = document.createElement("li");
+    li.className = "empty-state";
+    li.textContent = "No windows found";
+    resultsEl.appendChild(li);
+    return;
+  }
+
+  for (let i = 0; i < windows.length; i++) {
+    const w = windows[i];
+    const li = document.createElement("li");
+    li.className = `result-item${i === selectedIndex ? " selected" : ""}`;
+    li.dataset.index = String(i);
+
+    const appSpan = document.createElement("span");
+    appSpan.className = "result-app";
+    appSpan.textContent = w.app_name;
+
+    const sep = document.createElement("span");
+    sep.className = "result-separator";
+
+    const titleSpan = document.createElement("span");
+    titleSpan.className = "result-title";
+    titleSpan.textContent = w.title || w.app_name;
+
+    li.appendChild(appSpan);
+    if (w.title) {
+      li.appendChild(sep);
+      li.appendChild(titleSpan);
+    }
+
+    if (w.is_minimized) {
+      const minSpan = document.createElement("span");
+      minSpan.className = "result-minimized";
+      minSpan.textContent = "minimized";
+      li.appendChild(minSpan);
+    }
+
+    resultsEl.appendChild(li);
+  }
+
+  scrollSelectedIntoView();
+}
+
+function scrollSelectedIntoView() {
+  const item = resultsEl.querySelector(".selected");
+  item?.scrollIntoView({ block: "nearest" });
+}
+
+function moveSelection(delta: number) {
+  if (windows.length === 0) return;
+  selectedIndex = (selectedIndex + delta + windows.length) % windows.length;
+  render();
+}
+
+async function activateSelected() {
+  const w = windows[selectedIndex];
+  if (!w) return;
+  await hidePalette();
+  try {
+    await invoke("activate_window", { windowId: w.id, appPid: w.app_pid });
+  } catch (e) {
+    console.error("activate_window failed:", e);
+  }
+}
+
+async function hidePalette() {
+  searchEl.value = "";
+  windows = [];
+  resultsEl.innerHTML = "";
+  await appWindow.hide();
+}
+
+async function onPaletteOpen() {
+  searchEl.value = "";
+  selectedIndex = 0;
+  await loadWindows("");
+  searchEl.focus();
+}
+
+// Keyboard handler -- all navigation is keyboard-driven
+document.addEventListener("keydown", async (e) => {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    moveSelection(e.shiftKey ? -1 : 1);
+    return;
+  }
+
+  switch (e.key) {
+    case "ArrowDown":
+      e.preventDefault();
+      moveSelection(1);
+      break;
+    case "ArrowUp":
+      e.preventDefault();
+      moveSelection(-1);
+      break;
+    case "Enter":
+      e.preventDefault();
+      await activateSelected();
+      break;
+    case "Escape":
+      e.preventDefault();
+      await hidePalette();
+      break;
+  }
+});
+
+searchEl.addEventListener("input", () => {
+  loadWindows(searchEl.value);
+});
+
+// Dismiss when window loses focus (user Cmd+Tabs away)
+appWindow.onFocusChanged(({ payload: focused }) => {
+  if (!focused) {
+    hidePalette();
+  }
+});
+
+// Listen for palette-opened event from Rust (fired on hotkey press)
+listen("palette-opened", () => {
+  onPaletteOpen();
+});
+
+// Initial load when DOM is ready
+document.addEventListener("DOMContentLoaded", () => {
+  onPaletteOpen();
+});

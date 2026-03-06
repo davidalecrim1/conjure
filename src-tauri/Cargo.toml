@@ -1,0 +1,28 @@
+[package]
+name = "conjure"
+version = "0.1.0"
+description = "Keyboard-driven macOS window switcher"
+authors = []
+edition = "2021"
+
+[lib]
+name = "conjure_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"
+nucleo-matcher = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
+core-foundation = "0.9"
+accessibility = "0.1"
+accessibility-sys = "0.1"
+cocoa = "0.25"
+objc = "0.2"
