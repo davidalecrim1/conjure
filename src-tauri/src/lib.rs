@@ -3,6 +3,8 @@ mod permissions;
 mod search;
 mod windows;
 
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -54,7 +56,17 @@ pub fn run() {
                 Code::Space,
             );
             let app_handle = app.handle().clone();
+            // Debounce: the shortcut fires on both key-down and key-up,
+            // so ignore calls within 300ms of the last one.
+            let last_toggle: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
             app.global_shortcut().on_shortcut(shortcut, move |_, _, _| {
+                let mut last = last_toggle.lock().unwrap();
+                let now = Instant::now();
+                if last.map_or(false, |t| now.duration_since(t) < Duration::from_millis(300)) {
+                    return;
+                }
+                *last = Some(now);
+                drop(last);
                 toggle_palette(&app_handle);
             })?;
 
@@ -77,19 +89,24 @@ fn hide_palette(app: AppHandle) {
 }
 
 fn toggle_palette(app: &AppHandle) {
-    let window: WebviewWindow = match app.get_webview_window("main") {
-        Some(w) => w,
-        None => return,
-    };
+    let app = app.clone();
+    // Window operations must run on the main thread. The tray handler already
+    // is on the main thread, but the global shortcut callback is not.
+    let _ = app.clone().run_on_main_thread(move || {
+        let window: WebviewWindow = match app.get_webview_window("main") {
+            Some(w) => w,
+            None => return,
+        };
 
-    let is_visible = window.is_visible().unwrap_or(false);
+        let is_visible = window.is_visible().unwrap_or(false);
 
-    if is_visible {
-        let _ = window.hide();
-    } else {
-        let _ = window.center();
-        let _ = window.show();
-        let _ = window.set_focus();
-        let _ = app.emit("palette-opened", ());
-    }
+        if is_visible {
+            let _ = window.hide();
+        } else {
+            let _ = window.center();
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = app.emit("palette-opened", ());
+        }
+    });
 }
