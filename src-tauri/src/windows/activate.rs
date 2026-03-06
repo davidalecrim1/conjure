@@ -1,19 +1,20 @@
 use accessibility_sys::{
-    kAXMinimizedAttribute, kAXRaiseAction, kAXWindowsAttribute, AXUIElementCopyAttributeValue,
-    AXUIElementCreateApplication, AXUIElementPerformAction, AXUIElementSetAttributeValue,
+    kAXMinimizedAttribute, kAXRaiseAction, kAXTitleAttribute, kAXWindowsAttribute,
+    AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementPerformAction,
+    AXUIElementSetAttributeValue,
 };
 use core_foundation::{
     array::{CFArray, CFArrayRef},
     base::{CFType, CFTypeRef, TCFType},
     boolean::CFBoolean,
-    string::CFString,
+    string::{CFString, CFStringRef},
 };
 use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 
-pub fn activate(window_id: u32, app_pid: i32) -> Result<(), String> {
+pub fn activate(window_id: u32, app_pid: i32, title: &str) -> Result<(), String> {
     unsafe {
         activate_app(app_pid)?;
-        raise_window(app_pid, window_id)?;
+        raise_window(app_pid, window_id, title)?;
     }
     Ok(())
 }
@@ -31,7 +32,7 @@ unsafe fn activate_app(pid: i32) -> Result<(), String> {
     Ok(())
 }
 
-unsafe fn raise_window(pid: i32, _window_id: u32) -> Result<(), String> {
+unsafe fn raise_window(pid: i32, _window_id: u32, title: &str) -> Result<(), String> {
     let app_element = AXUIElementCreateApplication(pid);
     if app_element.is_null() {
         return Err(format!("Could not create AX element for pid {}", pid));
@@ -48,20 +49,39 @@ unsafe fn raise_window(pid: i32, _window_id: u32) -> Result<(), String> {
 
     let windows: CFArray<CFType> = CFArray::wrap_under_get_rule(windows_ref as CFArrayRef);
 
-    if let Some(window) = windows.iter().next() {
-        let window_elem = window.as_concrete_TypeRef();
-
-        let minimized_key = CFString::new(kAXMinimizedAttribute);
-        let false_val = CFBoolean::false_value();
-        AXUIElementSetAttributeValue(
-            window_elem as _,
-            minimized_key.as_concrete_TypeRef(),
-            false_val.as_CFTypeRef(),
+    // Find the window whose AX title matches; fall back to first window
+    let target = windows.iter().find(|window| {
+        let mut title_ref: CFTypeRef = std::ptr::null();
+        let title_attr = CFString::new(kAXTitleAttribute);
+        let r = AXUIElementCopyAttributeValue(
+            window.as_concrete_TypeRef() as _,
+            title_attr.as_concrete_TypeRef(),
+            &mut title_ref,
         );
+        if r != 0 || title_ref.is_null() {
+            return false;
+        }
+        let ax_title: CFString = CFString::wrap_under_get_rule(title_ref as CFStringRef);
+        ax_title.to_string() == title
+    });
 
-        let raise_action = CFString::new(kAXRaiseAction);
-        AXUIElementPerformAction(window_elem as _, raise_action.as_concrete_TypeRef());
-    }
+    let window = match target.or_else(|| windows.iter().next()) {
+        Some(w) => w,
+        None => return Ok(()),
+    };
+
+    let window_elem = window.as_concrete_TypeRef();
+
+    let minimized_key = CFString::new(kAXMinimizedAttribute);
+    let false_val = CFBoolean::false_value();
+    AXUIElementSetAttributeValue(
+        window_elem as _,
+        minimized_key.as_concrete_TypeRef(),
+        false_val.as_CFTypeRef(),
+    );
+
+    let raise_action = CFString::new(kAXRaiseAction);
+    AXUIElementPerformAction(window_elem as _, raise_action.as_concrete_TypeRef());
 
     Ok(())
 }

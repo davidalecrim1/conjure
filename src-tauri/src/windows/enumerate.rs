@@ -39,14 +39,18 @@ pub fn list() -> Vec<WindowInfo> {
 
     let ax_titles = get_ax_titles(&pids);
 
+    let mut pid_counters: HashMap<i32, usize> = HashMap::new();
+
     cg_windows
         .into_iter()
         .map(|cg| {
+            let idx = pid_counters.entry(cg.pid).or_insert(0);
             let title = ax_titles
                 .get(&cg.pid)
-                .and_then(|titles| titles.first())
+                .and_then(|titles| titles.get(*idx))
                 .cloned()
                 .unwrap_or_default();
+            *idx += 1;
             WindowInfo::new(cg.id, cg.owner_name, cg.pid, title, cg.bundle_id, false)
         })
         .collect()
@@ -111,9 +115,6 @@ fn get_cg_windows(own_pid: i32) -> Vec<CgWindowRaw> {
         }
     }
 
-    // One entry per PID -- AX enrichment handles per-window titles
-    let mut seen = std::collections::HashSet::new();
-    results.retain(|w| seen.insert(w.pid));
     results
 }
 
