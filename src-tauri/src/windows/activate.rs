@@ -1,37 +1,33 @@
 use accessibility_sys::{
-    kAXMinimizedAttribute, kAXRaiseAction, AXUIElementCreateApplication,
-    AXUIElementPerformAction, AXUIElementSetAttributeValue, AXUIElementCopyAttributeValue,
-    kAXWindowsAttribute,
+    kAXMinimizedAttribute, kAXRaiseAction, kAXWindowsAttribute, AXUIElementCopyAttributeValue,
+    AXUIElementCreateApplication, AXUIElementPerformAction, AXUIElementSetAttributeValue,
 };
-use cocoa::base::{id, nil};
 use core_foundation::{
     array::{CFArray, CFArrayRef},
     base::{CFType, CFTypeRef, TCFType},
     boolean::CFBoolean,
     string::CFString,
 };
-use objc::{msg_send, sel, sel_impl};
+use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
 
 pub fn activate(window_id: u32, app_pid: i32) -> Result<(), String> {
     unsafe {
-        // Step 1: Activate the app (brings it to foreground, handles Spaces)
         activate_app(app_pid)?;
-
-        // Step 2: Find and raise the specific AX window
         raise_window(app_pid, window_id)?;
     }
     Ok(())
 }
 
 unsafe fn activate_app(pid: i32) -> Result<(), String> {
-    let cls =
-        objc::runtime::Class::get("NSRunningApplication").ok_or("NSRunningApplication not found")?;
-    let app: id = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
-    if app == nil {
-        return Err(format!("No running app for pid {}", pid));
-    }
-    // NSApplicationActivateIgnoringOtherApps = 1 << 1 = 2
-    let _: bool = msg_send![app, activateWithOptions: 2u64];
+    let target = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
+        .ok_or_else(|| format!("No running app for pid {}", pid))?;
+
+    // Use the modern API: pass conjure itself as the sender app
+    let own_pid = std::process::id() as i32;
+    let sender = NSRunningApplication::runningApplicationWithProcessIdentifier(own_pid)
+        .ok_or("Could not get own NSRunningApplication")?;
+
+    target.activateFromApplication_options(&sender, NSApplicationActivationOptions(0));
     Ok(())
 }
 
@@ -47,17 +43,14 @@ unsafe fn raise_window(pid: i32, _window_id: u32) -> Result<(), String> {
         AXUIElementCopyAttributeValue(app_element, attr.as_concrete_TypeRef(), &mut windows_ref);
 
     if result != 0 || windows_ref.is_null() {
-        return Ok(()); // App has no AX windows -- app activation is enough
+        return Ok(());
     }
 
     let windows: CFArray<CFType> = CFArray::wrap_under_get_rule(windows_ref as CFArrayRef);
 
-    // Raise the first (frontmost) window -- for MVP we raise the first window.
-    // Phase 4 enumeration returns one entry per PID, so this is correct.
     if let Some(window) = windows.iter().next() {
         let window_elem = window.as_concrete_TypeRef();
 
-        // Un-minimize if needed
         let minimized_key = CFString::new(kAXMinimizedAttribute);
         let false_val = CFBoolean::false_value();
         AXUIElementSetAttributeValue(
@@ -66,7 +59,6 @@ unsafe fn raise_window(pid: i32, _window_id: u32) -> Result<(), String> {
             false_val.as_CFTypeRef(),
         );
 
-        // Raise
         let raise_action = CFString::new(kAXRaiseAction);
         AXUIElementPerformAction(window_elem as _, raise_action.as_concrete_TypeRef());
     }

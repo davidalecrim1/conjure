@@ -18,13 +18,12 @@ pub fn run() {
             // Hide from Dock -- run as background accessory app
             #[cfg(target_os = "macos")]
             {
-                use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicy};
-                unsafe {
-                    let app_ns = NSApp();
-                    app_ns.setActivationPolicy_(
-                        NSApplicationActivationPolicy::NSApplicationActivationPolicyAccessory,
-                    );
-                }
+                use objc2::MainThreadMarker;
+                use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+                // SAFETY: Tauri's setup closure always runs on the main thread
+                let mtm = unsafe { MainThreadMarker::new_unchecked() };
+                let ns_app = NSApplication::sharedApplication(mtm);
+                ns_app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
             }
 
             permissions::check_and_request();

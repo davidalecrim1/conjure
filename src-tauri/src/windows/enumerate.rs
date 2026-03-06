@@ -3,7 +3,6 @@ use accessibility_sys::{
     kAXTitleAttribute, kAXWindowsAttribute, AXUIElementCopyAttributeValue,
     AXUIElementCreateApplication,
 };
-use cocoa::base::{id, nil};
 use core_foundation::{
     array::{CFArray, CFArrayRef},
     base::{CFType, CFTypeRef, TCFType},
@@ -15,7 +14,7 @@ use core_graphics::window::{
     kCGWindowLayer, kCGWindowListOptionOnScreenOnly, kCGWindowNumber, kCGWindowOwnerName,
     kCGWindowOwnerPID, CGWindowListCopyWindowInfo,
 };
-use objc::{msg_send, sel, sel_impl};
+use objc2_app_kit::NSRunningApplication;
 use std::collections::HashMap;
 
 const EXCLUDED_APPS: &[&str] = &[
@@ -172,22 +171,9 @@ fn ax_titles_for_pid(pid: i32) -> Vec<String> {
 }
 
 fn bundle_id_for_pid(pid: i32) -> Option<String> {
-    unsafe {
-        let cls = objc::runtime::Class::get("NSRunningApplication")?;
-        let app: id = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
-        if app == nil {
-            return None;
-        }
-        let bundle_id: id = msg_send![app, bundleIdentifier];
-        if bundle_id == nil {
-            return None;
-        }
-        let s: *const std::os::raw::c_char = msg_send![bundle_id, UTF8String];
-        if s.is_null() {
-            return None;
-        }
-        Some(std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned())
-    }
+    let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
+    let bundle_id = app.bundleIdentifier()?;
+    Some(bundle_id.to_string())
 }
 
 /// Look up a number value in a CG window info dictionary.
