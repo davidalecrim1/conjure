@@ -117,6 +117,7 @@ async function hidePalette() {
 async function onPaletteOpen() {
   searchEl.value = "";
   selectedIndex = 0;
+  await invoke("refresh_windows");
   await loadWindows("");
   searchEl.focus();
 }
@@ -155,8 +156,10 @@ document.addEventListener("keydown", async (e) => {
   }
 }, { capture: true });
 
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 searchEl.addEventListener("input", () => {
-  loadWindows(searchEl.value);
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => loadWindows(searchEl.value), 120);
 });
 
 // Dismiss when window loses focus (user Cmd+Tabs away).

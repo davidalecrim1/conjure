@@ -88,6 +88,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            windows::refresh_windows,
             windows::list_windows,
             windows::activate_window,
             hide_palette,
