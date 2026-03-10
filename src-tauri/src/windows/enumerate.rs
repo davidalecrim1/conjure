@@ -13,14 +13,12 @@ use core_foundation::{
     string::{CFString, CFStringRef},
 };
 use core_graphics::window::{
-    kCGWindowLayer, kCGWindowListOptionOnScreenOnly, kCGWindowNumber, kCGWindowOwnerName,
-    kCGWindowOwnerPID, CGWindowListCopyWindowInfo,
+    kCGWindowLayer, kCGWindowListOptionAll, kCGWindowListOptionOnScreenOnly, kCGWindowNumber,
+    kCGWindowOwnerName, kCGWindowOwnerPID, CGWindowListCopyWindowInfo,
 };
 use objc2::rc::Retained;
 use objc2::AnyThread;
-use objc2_app_kit::{
-    NSApplicationActivationPolicy, NSBitmapImageFileType, NSBitmapImageRep, NSRunningApplication,
-};
+use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSRunningApplication};
 use objc2_foundation::{NSDictionary, NSSize};
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -39,36 +37,67 @@ const EXCLUDED_APPS: &[&str] = &[
 
 pub fn list(include_minimized: bool) -> Vec<WindowInfo> {
     let own_pid = std::process::id() as i32;
-    let cg_windows = get_cg_windows(own_pid);
 
-    // PIDs already represented by on-screen CG windows
-    let on_screen_pids: std::collections::HashSet<i32> =
-        cg_windows.iter().map(|w| w.pid).collect();
+    // Single CG pass: fetch all windows (on-screen + off-screen) once.
+    // When include_minimized is false we use the cheaper on-screen-only option.
+    let cg_windows = get_cg_windows(own_pid, include_minimized);
 
-    let ax_titles = get_ax_titles(on_screen_pids.iter().copied().collect::<Vec<_>>().as_slice());
+    // Collect unique PIDs that have at least one on-screen window.
+    let on_screen_pids: std::collections::HashSet<i32> = cg_windows
+        .iter()
+        .filter(|w| w.on_screen)
+        .map(|w| w.pid)
+        .collect();
+
+    // Unique PIDs we need AX data for.
+    let all_pids: Vec<i32> = cg_windows
+        .iter()
+        .map(|w| w.pid)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    // Fetch AX window entries (title + minimized) for all PIDs in parallel.
+    let ax_data = get_ax_data_parallel(&all_pids);
 
     let mut pid_counters: HashMap<i32, usize> = HashMap::new();
 
-    let mut results: Vec<WindowInfo> = cg_windows
+    cg_windows
         .into_iter()
-        .map(|cg| {
+        .filter_map(|cg| {
+            // Off-screen entries are only included when include_minimized is true.
+            // For off-screen PIDs that are also present on-screen (e.g. an app with
+            // both visible and minimized windows), skip the off-screen CG row —
+            // the minimized window is surfaced via the AX index below.
+            if !cg.on_screen && on_screen_pids.contains(&cg.pid) {
+                return None;
+            }
+
             let idx = pid_counters.entry(cg.pid).or_insert(0);
-            let title = ax_titles
+            let (title, is_minimized) = ax_data
                 .get(&cg.pid)
-                .and_then(|titles| titles.get(*idx))
+                .and_then(|entries| entries.get(*idx))
                 .cloned()
                 .unwrap_or_default();
             *idx += 1;
-            WindowInfo::new(cg.id, cg.owner_name, cg.pid, title, cg.bundle_id, false, cg.icon_data_url)
+
+            // For off-screen rows, only emit if the AX window is actually minimized.
+            // This filters out background/invisible windows that appear in the CG list.
+            if !cg.on_screen && !is_minimized {
+                return None;
+            }
+
+            Some(WindowInfo::new(
+                cg.id,
+                cg.owner_name,
+                cg.pid,
+                title,
+                cg.bundle_id,
+                is_minimized,
+                cg.icon_data_url,
+            ))
         })
-        .collect();
-
-    if include_minimized {
-        let minimized = get_minimized_windows(own_pid, &on_screen_pids);
-        results.extend(minimized);
-    }
-
-    results
+        .collect()
 }
 
 struct CgWindowRaw {
@@ -77,19 +106,45 @@ struct CgWindowRaw {
     pid: i32,
     bundle_id: Option<String>,
     icon_data_url: Option<String>,
+    on_screen: bool,
 }
 
-fn get_cg_windows(own_pid: i32) -> Vec<CgWindowRaw> {
+fn get_cg_windows(own_pid: i32, include_minimized: bool) -> Vec<CgWindowRaw> {
     let mut results = Vec::new();
+    // Per-call PID → (bundle_id, icon) cache to avoid redundant NSRunningApplication
+    // lookups when the same app has multiple windows in the CG list.
+    let mut pid_meta: HashMap<i32, (Option<String>, Option<String>)> = HashMap::new();
 
     unsafe {
-        let window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, 0);
-        if window_list.is_null() {
+        // When include_minimized, fetch the full window list. We also fetch the
+        // on-screen-only list to build a reliable set of on-screen window IDs,
+        // since the kCGWindowIsOnscreen dict key is not accessible via CFString lookup.
+        let full_list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, 0);
+        if full_list.is_null() {
             return results;
         }
 
+        let on_screen_ids: std::collections::HashSet<u32> = if include_minimized {
+            let on_screen_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, 0);
+            if on_screen_list.is_null() {
+                std::collections::HashSet::new()
+            } else {
+                let arr: CFArray<CFDictionary<CFString, CFType>> =
+                    CFArray::wrap_under_get_rule(on_screen_list as CFArrayRef);
+                arr.iter()
+                    .filter_map(|w| {
+                        let layer = cf_dict_number(&w, kCGWindowLayer).unwrap_or(1);
+                        if layer != 0 { return None; }
+                        cf_dict_number(&w, kCGWindowNumber).map(|n| n as u32)
+                    })
+                    .collect()
+            }
+        } else {
+            std::collections::HashSet::new()
+        };
+
         let array: CFArray<CFDictionary<CFString, CFType>> =
-            CFArray::wrap_under_get_rule(window_list as CFArrayRef);
+            CFArray::wrap_under_get_rule(full_list as CFArrayRef);
 
         for window in array.iter() {
             let layer = cf_dict_number(&window, kCGWindowLayer).unwrap_or(1);
@@ -120,16 +175,28 @@ fn get_cg_windows(own_pid: i32) -> Vec<CgWindowRaw> {
                 None => continue,
             };
 
-            let bundle_id = bundle_id_for_pid(pid);
-            let cache_key = bundle_id.clone().unwrap_or_else(|| owner_name.clone());
-            let icon_data_url = cached_icon_for_pid(pid, &cache_key);
+            let on_screen = if include_minimized {
+                on_screen_ids.contains(&id)
+            } else {
+                true // kCGWindowListOptionOnScreenOnly — all results are on-screen
+            };
+
+            // Lookup bundle_id + icon once per unique PID
+            let (bundle_id, icon_data_url) = pid_meta.entry(pid).or_insert_with(|| {
+                let bundle_id = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)
+                    .and_then(|app| app.bundleIdentifier().map(|b| b.to_string()));
+                let cache_key = bundle_id.clone().unwrap_or_else(|| owner_name.clone());
+                let icon = cached_icon_for_pid(pid, &cache_key);
+                (bundle_id, icon)
+            });
 
             results.push(CgWindowRaw {
                 id,
                 owner_name,
                 pid,
-                bundle_id,
-                icon_data_url,
+                bundle_id: bundle_id.clone(),
+                icon_data_url: icon_data_url.clone(),
+                on_screen,
             });
         }
     }
@@ -137,186 +204,83 @@ fn get_cg_windows(own_pid: i32) -> Vec<CgWindowRaw> {
     results
 }
 
-fn get_ax_titles(pids: &[i32]) -> HashMap<i32, Vec<String>> {
-    let mut map = HashMap::new();
-    for &pid in pids {
-        let titles = ax_titles_for_pid(pid);
-        if !titles.is_empty() {
-            map.insert(pid, titles);
+/// Fetch AX window entries (title, is_minimized) for all given PIDs in parallel.
+fn get_ax_data_parallel(pids: &[i32]) -> HashMap<i32, Vec<(String, bool)>> {
+    let mut map = HashMap::with_capacity(pids.len());
+    std::thread::scope(|s| {
+        let handles: Vec<_> = pids
+            .iter()
+            .map(|&pid| s.spawn(move || (pid, ax_entries_for_pid(pid))))
+            .collect();
+        for handle in handles {
+            if let Ok((pid, entries)) = handle.join() {
+                if !entries.is_empty() {
+                    map.insert(pid, entries);
+                }
+            }
         }
-    }
+    });
     map
 }
 
-fn ax_titles_for_pid(pid: i32) -> Vec<String> {
-    let mut titles = Vec::new();
+fn ax_entries_for_pid(pid: i32) -> Vec<(String, bool)> {
+    let mut entries = Vec::new();
 
     unsafe {
         let app_element = AXUIElementCreateApplication(pid);
         if app_element.is_null() {
-            return titles;
+            return entries;
         }
 
         let mut windows_ref: CFTypeRef = std::ptr::null();
         let attr = CFString::new(kAXWindowsAttribute);
-        let result =
-            AXUIElementCopyAttributeValue(app_element, attr.as_concrete_TypeRef(), &mut windows_ref);
+        let result = AXUIElementCopyAttributeValue(
+            app_element,
+            attr.as_concrete_TypeRef(),
+            &mut windows_ref,
+        );
 
         if result != 0 || windows_ref.is_null() {
-            return titles;
+            return entries;
         }
 
         let windows: CFArray<CFType> = CFArray::wrap_under_get_rule(windows_ref as CFArrayRef);
 
         for window in windows.iter() {
+            let elem = window.as_concrete_TypeRef() as accessibility_sys::AXUIElementRef;
+
             let mut title_ref: CFTypeRef = std::ptr::null();
             let title_attr = CFString::new(kAXTitleAttribute);
             let r = AXUIElementCopyAttributeValue(
-                window.as_concrete_TypeRef() as _,
+                elem,
                 title_attr.as_concrete_TypeRef(),
                 &mut title_ref,
             );
+            let title = if r == 0 && !title_ref.is_null() {
+                let s: CFString = CFString::wrap_under_get_rule(title_ref as CFStringRef);
+                s.to_string()
+            } else {
+                String::new()
+            };
 
-            if r == 0 && !title_ref.is_null() {
-                let title: CFString = CFString::wrap_under_get_rule(title_ref as CFStringRef);
-                let s = title.to_string();
-                if !s.is_empty() {
-                    titles.push(s);
-                }
-            }
-        }
-    }
-
-    titles
-}
-
-/// Returns WindowInfo entries for minimized windows belonging to regular user apps
-/// that are not already represented in `on_screen_pids`.
-///
-/// Uses CG with kCGWindowListOptionAll only to discover candidate PIDs, then
-/// filters to .Regular activation policy apps via NSRunningApplication (thread-safe),
-/// then queries AX for minimized windows. This avoids NSWorkspace (main-thread only).
-fn get_minimized_windows(
-    own_pid: i32,
-    on_screen_pids: &std::collections::HashSet<i32>,
-) -> Vec<WindowInfo> {
-    // Collect candidate PIDs from the full CG window list (off-screen included).
-    // We only use this for PID discovery — no WindowInfo is built from these entries.
-    let candidate_pids: std::collections::HashSet<i32> = unsafe {
-        let window_list = CGWindowListCopyWindowInfo(
-            core_graphics::window::kCGWindowListOptionAll,
-            0,
-        );
-        if window_list.is_null() {
-            return Vec::new();
-        }
-        let array: CFArray<CFDictionary<CFString, CFType>> =
-            CFArray::wrap_under_get_rule(window_list as CFArrayRef);
-
-        array
-            .iter()
-            .filter_map(|w| {
-                let layer = cf_dict_number(&w, kCGWindowLayer).unwrap_or(1);
-                if layer != 0 {
-                    return None;
-                }
-                let pid = cf_dict_number(&w, kCGWindowOwnerPID)? as i32;
-                if pid == own_pid || on_screen_pids.contains(&pid) {
-                    return None;
-                }
-                Some(pid)
-            })
-            .collect()
-    };
-
-    let mut results = Vec::new();
-
-    for pid in candidate_pids {
-        let ns_app = match NSRunningApplication::runningApplicationWithProcessIdentifier(pid) {
-            Some(a) => a,
-            None => continue,
-        };
-
-        // Skip agents, daemons, UIViewServices — only real user-facing apps
-        if ns_app.activationPolicy() != NSApplicationActivationPolicy::Regular {
-            continue;
-        }
-
-        let app_name = match ns_app.localizedName() {
-            Some(n) => n.to_string(),
-            None => continue,
-        };
-        let bundle_id = ns_app.bundleIdentifier().map(|b| b.to_string());
-        let cache_key = bundle_id.clone().unwrap_or_else(|| app_name.clone());
-        let icon_data_url = cached_icon_for_pid(pid, &cache_key);
-
-        unsafe {
-            let app_element = AXUIElementCreateApplication(pid);
-            if app_element.is_null() {
-                continue;
-            }
-
-            let mut windows_ref: CFTypeRef = std::ptr::null();
-            let attr = CFString::new(kAXWindowsAttribute);
-            let r = AXUIElementCopyAttributeValue(
-                app_element,
-                attr.as_concrete_TypeRef(),
-                &mut windows_ref,
+            let mut min_ref: CFTypeRef = std::ptr::null();
+            let min_attr = CFString::new(kAXMinimizedAttribute);
+            let r2 = AXUIElementCopyAttributeValue(
+                elem,
+                min_attr.as_concrete_TypeRef(),
+                &mut min_ref,
             );
-            if r != 0 || windows_ref.is_null() {
-                continue;
-            }
+            let is_minimized = r2 == 0
+                && !min_ref.is_null()
+                && CFBoolean::wrap_under_get_rule(min_ref as _) == CFBoolean::true_value();
 
-            let windows: CFArray<CFType> =
-                CFArray::wrap_under_get_rule(windows_ref as CFArrayRef);
-
-            for window in windows.iter() {
-                let elem = window.as_concrete_TypeRef() as accessibility_sys::AXUIElementRef;
-
-                let mut min_ref: CFTypeRef = std::ptr::null();
-                let min_attr = CFString::new(kAXMinimizedAttribute);
-                let r2 = AXUIElementCopyAttributeValue(
-                    elem,
-                    min_attr.as_concrete_TypeRef(),
-                    &mut min_ref,
-                );
-                let is_minimized = r2 == 0
-                    && !min_ref.is_null()
-                    && CFBoolean::wrap_under_get_rule(min_ref as _) == CFBoolean::true_value();
-
-                if !is_minimized {
-                    continue;
-                }
-
-                let mut title_ref: CFTypeRef = std::ptr::null();
-                let title_attr = CFString::new(kAXTitleAttribute);
-                let r3 = AXUIElementCopyAttributeValue(
-                    elem,
-                    title_attr.as_concrete_TypeRef(),
-                    &mut title_ref,
-                );
-                let title = if r3 == 0 && !title_ref.is_null() {
-                    CFString::wrap_under_get_rule(title_ref as CFStringRef).to_string()
-                } else {
-                    String::new()
-                };
-
-                // Minimized windows have no CG window ID; use 0 as sentinel.
-                // activate.rs ignores window_id and matches by title via AX.
-                results.push(WindowInfo::new(
-                    0,
-                    app_name.clone(),
-                    pid,
-                    title,
-                    bundle_id.clone(),
-                    true,
-                    icon_data_url.clone(),
-                ));
+            if !title.is_empty() {
+                entries.push((title, is_minimized));
             }
         }
     }
 
-    results
+    entries
 }
 
 fn icon_for_pid(pid: i32) -> Option<String> {
@@ -355,12 +319,6 @@ fn cached_icon_for_pid(pid: i32, cache_key: &str) -> Option<String> {
     result
 }
 
-fn bundle_id_for_pid(pid: i32) -> Option<String> {
-    let app = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
-    let bundle_id = app.bundleIdentifier()?;
-    Some(bundle_id.to_string())
-}
-
 /// Look up a number value in a CG window info dictionary.
 /// The CG constants are `*const __CFString` (= CFStringRef) -- wrap without retaining.
 fn cf_dict_number(dict: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Option<i64> {
@@ -380,3 +338,4 @@ fn cf_dict_string(dict: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Op
             .map(|s| s.to_string())
     }
 }
+

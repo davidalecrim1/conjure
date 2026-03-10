@@ -65,10 +65,10 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Register Cmd+Ctrl+Space global hotkey
+            // Register Cmd+Option+P global hotkey
             let shortcut = Shortcut::new(
-                Some(Modifiers::SUPER | Modifiers::CONTROL),
-                Code::Space,
+                Some(Modifiers::SUPER | Modifiers::ALT),
+                Code::KeyP,
             );
             let app_handle = app.handle().clone();
             // Debounce: the shortcut fires on both key-down and key-up,
