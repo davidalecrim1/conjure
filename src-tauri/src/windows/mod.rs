@@ -10,7 +10,7 @@ static WINDOW_CACHE: LazyLock<Mutex<Vec<WindowInfo>>> =
 
 #[tauri::command]
 pub fn refresh_windows() {
-    let include_minimized = crate::INCLUDE_MINIMIZED.load(std::sync::atomic::Ordering::Relaxed);
+    let include_minimized = crate::palette::INCLUDE_MINIMIZED.load(std::sync::atomic::Ordering::Relaxed);
     let windows = enumerate::list(include_minimized);
     *WINDOW_CACHE.lock().unwrap() = windows;
 }
