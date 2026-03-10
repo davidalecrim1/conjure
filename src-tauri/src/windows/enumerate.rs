@@ -13,8 +13,8 @@ use core_foundation::{
     string::{CFString, CFStringRef},
 };
 use core_graphics::window::{
-    kCGWindowLayer, kCGWindowListOptionAll, kCGWindowListOptionOnScreenOnly, kCGWindowNumber,
-    kCGWindowOwnerName, kCGWindowOwnerPID, CGWindowListCopyWindowInfo,
+    kCGWindowLayer, kCGWindowListOptionAll, kCGWindowListOptionOnScreenOnly, kCGWindowName,
+    kCGWindowNumber, kCGWindowOwnerName, kCGWindowOwnerPID, CGWindowListCopyWindowInfo,
 };
 use objc2::rc::Retained;
 use objc2::AnyThread;
@@ -33,6 +33,7 @@ const EXCLUDED_APPS: &[&str] = &[
     "Control Center",
     "Notification Center",
     "Spotlight",
+    "universalAccessAuth",
 ];
 
 pub fn list(include_minimized: bool) -> Vec<WindowInfo> {
@@ -74,12 +75,22 @@ pub fn list(include_minimized: bool) -> Vec<WindowInfo> {
             }
 
             let idx = pid_counters.entry(cg.pid).or_insert(0);
-            let (title, is_minimized) = ax_data
+            let ax_entry = ax_data
                 .get(&cg.pid)
                 .and_then(|entries| entries.get(*idx))
-                .cloned()
-                .unwrap_or_default();
+                .cloned();
             *idx += 1;
+
+            // AX title is the primary source — it contains the full window title
+            // (e.g. "Zed — conjure"). CG name is a fallback for apps that don't
+            // expose an AX title (some Electron apps, system panels, etc.).
+            let ax_title = ax_entry.as_ref().map(|(t, _)| t.as_str()).unwrap_or("");
+            let title = if !ax_title.is_empty() {
+                ax_title.to_owned()
+            } else {
+                cg.window_name.filter(|n| !n.is_empty()).unwrap_or_default()
+            };
+            let is_minimized = ax_entry.map(|(_, m)| m).unwrap_or(false);
 
             // For off-screen rows, only emit if the AX window is actually minimized.
             // This filters out background/invisible windows that appear in the CG list.
@@ -87,11 +98,15 @@ pub fn list(include_minimized: bool) -> Vec<WindowInfo> {
                 return None;
             }
 
+            // Strip the app name prefix that some apps (e.g. Zed: "Zed — conjure")
+            // embed in their window title, so the UI shows app_name | window_part.
+            let window_part = strip_app_prefix(&title, &cg.owner_name);
+
             Some(WindowInfo::new(
                 cg.id,
                 cg.owner_name,
                 cg.pid,
-                title,
+                window_part,
                 cg.bundle_id,
                 is_minimized,
                 cg.icon_data_url,
@@ -107,6 +122,7 @@ struct CgWindowRaw {
     bundle_id: Option<String>,
     icon_data_url: Option<String>,
     on_screen: bool,
+    window_name: Option<String>,
 }
 
 fn get_cg_windows(own_pid: i32, include_minimized: bool) -> Vec<CgWindowRaw> {
@@ -190,6 +206,8 @@ fn get_cg_windows(own_pid: i32, include_minimized: bool) -> Vec<CgWindowRaw> {
                 (bundle_id, icon)
             });
 
+            let window_name = cf_dict_string(&window, kCGWindowName);
+
             results.push(CgWindowRaw {
                 id,
                 owner_name,
@@ -197,6 +215,7 @@ fn get_cg_windows(own_pid: i32, include_minimized: bool) -> Vec<CgWindowRaw> {
                 bundle_id: bundle_id.clone(),
                 icon_data_url: icon_data_url.clone(),
                 on_screen,
+                window_name,
             });
         }
     }
@@ -274,9 +293,10 @@ fn ax_entries_for_pid(pid: i32) -> Vec<(String, bool)> {
                 && !min_ref.is_null()
                 && CFBoolean::wrap_under_get_rule(min_ref as _) == CFBoolean::true_value();
 
-            if !title.is_empty() {
-                entries.push((title, is_minimized));
-            }
+            // Include all AX windows (even untitled ones) so the index aligns with
+            // the CG window list for the same PID. Untitled entries fall back to
+            // kCGWindowName in the caller.
+            entries.push((title, is_minimized));
         }
     }
 
@@ -317,6 +337,22 @@ fn cached_icon_for_pid(pid: i32, cache_key: &str) -> Option<String> {
         .unwrap()
         .insert(cache_key.to_string(), result.clone());
     result
+}
+
+/// Strip the app name prefix from a window title if present.
+/// Many apps (Zed, VS Code, Terminal) prefix the window title with the app name:
+/// "Zed — conjure" → "conjure", "Terminal — bash" → "bash".
+/// Common separators: " — ", " - ", " – ".
+fn strip_app_prefix(title: &str, app_name: &str) -> String {
+    for sep in &[" \u{2014} ", " - ", " \u{2013} "] {
+        let prefix = format!("{}{}", app_name, sep);
+        if let Some(rest) = title.strip_prefix(prefix.as_str()) {
+            if !rest.is_empty() {
+                return rest.to_owned();
+            }
+        }
+    }
+    title.to_owned()
 }
 
 /// Look up a number value in a CG window info dictionary.

@@ -54,22 +54,22 @@ function render() {
       li.appendChild(img);
     }
 
+    const textWrap = document.createElement("span");
+    textWrap.className = "result-text";
+
     const appSpan = document.createElement("span");
     appSpan.className = "result-app";
     appSpan.textContent = w.app_name;
+    textWrap.appendChild(appSpan);
 
-    const sep = document.createElement("span");
-    sep.className = "result-separator";
-
-    const titleSpan = document.createElement("span");
-    titleSpan.className = "result-title";
-    titleSpan.textContent = w.title || w.app_name;
-
-    li.appendChild(appSpan);
     if (w.title) {
-      li.appendChild(sep);
-      li.appendChild(titleSpan);
+      const titleSpan = document.createElement("span");
+      titleSpan.className = "result-title";
+      titleSpan.textContent = " " + w.title;
+      textWrap.appendChild(titleSpan);
     }
+
+    li.appendChild(textWrap);
 
     if (w.is_minimized) {
       const minSpan = document.createElement("span");

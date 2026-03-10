@@ -1,6 +1,19 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
+#[cfg(target_os = "macos")]
+fn set_floating_level(window: &WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    // NSModalPanelWindowLevel = 8 — above all normal app windows, below screen saver.
+    // This prevents other apps from covering the palette when the mouse enters it.
+    let ns_win = window.ns_window().expect("ns_window unavailable");
+    unsafe {
+        let win = ns_win as *mut AnyObject;
+        let _: () = msg_send![win, setLevel: 8i64];
+    }
+}
+
 pub static INCLUDE_MINIMIZED: AtomicBool = AtomicBool::new(true);
 
 pub fn toggle(app: &AppHandle) {
@@ -19,6 +32,8 @@ pub fn toggle(app: &AppHandle) {
             let _ = window.center();
             let _ = window.show();
             let _ = window.set_focus();
+            #[cfg(target_os = "macos")]
+            set_floating_level(&window);
             let _ = app.emit("palette-opened", ());
         }
     });

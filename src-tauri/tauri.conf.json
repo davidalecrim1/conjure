@@ -16,8 +16,8 @@
       {
         "label": "main",
         "title": "Conjure",
-        "width": 680,
-        "height": 420,
+        "width": 780,
+        "height": 500,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,

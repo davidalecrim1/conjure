@@ -9,19 +9,18 @@ body {
   width: 100%;
   height: 100%;
   background: transparent;
-  cursor: none;
   overflow: hidden;
   /* Prevent text selection during keyboard navigation */
   user-select: none;
 }
 
 #palette {
-  width: 680px;
-  height: 420px;
+  width: 780px;
+  height: 500px;
   background: rgba(24, 24, 28, 0.92);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   flex-direction: column;
@@ -30,13 +29,13 @@ body {
 
 #search {
   width: 100%;
-  padding: 16px 20px;
+  padding: 20px 24px;
   background: transparent;
   border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   outline: none;
   color: rgba(255, 255, 255, 0.92);
-  font-size: 16px;
+  font-size: 19px;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   font-weight: 400;
   caret-color: #6a9de0;
@@ -50,7 +49,7 @@ body {
   flex: 1;
   overflow-y: auto;
   list-style: none;
-  padding: 6px 0;
+  padding: 8px 0;
   /* Hide scrollbar visually but keep functionality */
   scrollbar-width: none;
 }
@@ -62,39 +61,37 @@ body {
 .result-item {
   display: flex;
   align-items: center;
-  padding: 9px 16px;
-  gap: 12px;
-  cursor: none;
+  padding: 11px 20px;
+  gap: 14px;
 }
 
 .result-item.selected {
   background: rgba(106, 157, 224, 0.2);
-  border-radius: 6px;
-  margin: 0 6px;
-  padding: 9px 10px;
+  border-radius: 7px;
+  margin: 0 8px;
+  padding: 11px 12px;
+}
+
+.result-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .result-app {
-  font-size: 13px;
+  font-size: 15px;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.75);
-  white-space: nowrap;
-  flex-shrink: 0;
-  min-width: 100px;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .result-title {
-  font-size: 13px;
+  font-size: 15px;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.5);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .result-item.selected .result-app {
@@ -102,26 +99,19 @@ body {
 }
 
 .result-item.selected .result-title {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.result-separator {
-  width: 1px;
-  height: 12px;
-  background: rgba(255, 255, 255, 0.15);
-  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .result-icon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   object-fit: contain;
 }
 
 .result-minimized {
-  font-size: 10px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.3);
   flex-shrink: 0;
 }
@@ -131,7 +121,7 @@ body {
   align-items: center;
   justify-content: center;
   height: 100%;
-  font-size: 13px;
+  font-size: 15px;
   color: rgba(255, 255, 255, 0.25);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
 }
