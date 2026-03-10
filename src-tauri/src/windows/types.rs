@@ -10,6 +10,7 @@ pub struct WindowInfo {
     pub is_minimized: bool,
     /// "AppName - Window Title" used for fuzzy matching
     pub display_text: String,
+    pub icon_data_url: Option<String>,
 }
 
 impl WindowInfo {
@@ -20,6 +21,7 @@ impl WindowInfo {
         title: String,
         app_bundle_id: Option<String>,
         is_minimized: bool,
+        icon_data_url: Option<String>,
     ) -> Self {
         let display_text = if title.is_empty() {
             app_name.clone()
@@ -34,6 +36,7 @@ impl WindowInfo {
             app_bundle_id,
             is_minimized,
             display_text,
+            icon_data_url,
         }
     }
 }

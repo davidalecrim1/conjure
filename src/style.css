@@ -112,6 +112,14 @@ body {
   flex-shrink: 0;
 }
 
+.result-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
 .result-minimized {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.3);

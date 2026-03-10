@@ -3,14 +3,17 @@ mod permissions;
 mod search;
 mod windows;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, CheckMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager, WebviewWindow,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+
+pub static INCLUDE_MINIMIZED: AtomicBool = AtomicBool::new(true);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -32,8 +35,16 @@ pub fn run() {
 
             // Build tray menu
             let switch = MenuItem::with_id(app, "switch", "Switch Windows", true, None::<&str>)?;
+            let show_minimized = CheckMenuItem::with_id(
+                app,
+                "show_minimized",
+                "Show Minimized Windows",
+                true,
+                INCLUDE_MINIMIZED.load(Ordering::Relaxed),
+                None::<&str>,
+            )?;
             let quit = MenuItem::with_id(app, "quit", "Quit Conjure", true, Some("Cmd+Q"))?;
-            let menu = Menu::with_items(app, &[&switch, &quit])?;
+            let menu = Menu::with_items(app, &[&switch, &show_minimized, &quit])?;
 
             let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
                 "../icons/tray-icon.png"
@@ -45,6 +56,10 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(|app: &AppHandle, event| match event.id.as_ref() {
                     "switch" => toggle_palette(app),
+                    "show_minimized" => {
+                        let current = INCLUDE_MINIMIZED.load(Ordering::Relaxed);
+                        INCLUDE_MINIMIZED.store(!current, Ordering::Relaxed);
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -62,7 +77,7 @@ pub fn run() {
             app.global_shortcut().on_shortcut(shortcut, move |_, _, _| {
                 let mut last = last_toggle.lock().unwrap();
                 let now = Instant::now();
-                if last.map_or(false, |t| now.duration_since(t) < Duration::from_millis(300)) {
+                if last.is_some_and(|t| now.duration_since(t) < Duration::from_millis(300)) {
                     return;
                 }
                 *last = Some(now);
@@ -76,9 +91,15 @@ pub fn run() {
             windows::list_windows,
             windows::activate_window,
             hide_palette,
+            set_include_minimized,
         ])
         .run(tauri::generate_context!())
         .expect("error while running conjure");
+}
+
+#[tauri::command]
+fn set_include_minimized(include: bool) {
+    INCLUDE_MINIMIZED.store(include, Ordering::Relaxed);
 }
 
 #[tauri::command]

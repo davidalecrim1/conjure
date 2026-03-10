@@ -62,7 +62,7 @@ unsafe fn raise_window(pid: i32, _window_id: u32, title: &str) -> Result<(), Str
             return false;
         }
         let ax_title: CFString = CFString::wrap_under_get_rule(title_ref as CFStringRef);
-        ax_title.to_string() == title
+        ax_title == title
     });
 
     let window = match target.or_else(|| windows.iter().next()) {

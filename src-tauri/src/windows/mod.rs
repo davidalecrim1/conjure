@@ -6,7 +6,8 @@ use types::WindowInfo;
 
 #[tauri::command]
 pub fn list_windows(query: String) -> Vec<WindowInfo> {
-    let windows = enumerate::list();
+    let include_minimized = crate::INCLUDE_MINIMIZED.load(std::sync::atomic::Ordering::Relaxed);
+    let windows = enumerate::list(include_minimized);
     if query.is_empty() {
         crate::mru::sort(windows)
     } else {
@@ -18,7 +19,8 @@ pub fn list_windows(query: String) -> Vec<WindowInfo> {
 pub fn activate_window(window_id: u32, app_pid: i32) -> Result<(), String> {
     // Record in MRU before activating so ranking updates immediately
     // We need the WindowInfo to record -- look it up from current window list
-    let windows = enumerate::list();
+    let include_minimized = crate::INCLUDE_MINIMIZED.load(std::sync::atomic::Ordering::Relaxed);
+    let windows = enumerate::list(include_minimized);
     let title = windows
         .iter()
         .find(|w| w.id == window_id)

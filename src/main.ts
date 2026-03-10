@@ -10,6 +10,7 @@ interface WindowInfo {
   app_bundle_id: string | null;
   is_minimized: boolean;
   display_text: string;
+  icon_data_url: string | null;
 }
 
 const appWindow = getCurrentWindow();
@@ -45,6 +46,13 @@ function render() {
     const li = document.createElement("li");
     li.className = `result-item${i === selectedIndex ? " selected" : ""}`;
     li.dataset.index = String(i);
+
+    if (w.icon_data_url) {
+      const img = document.createElement("img");
+      img.className = "result-icon";
+      img.src = w.icon_data_url;
+      li.appendChild(img);
+    }
 
     const appSpan = document.createElement("span");
     appSpan.className = "result-app";
