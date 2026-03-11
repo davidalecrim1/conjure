@@ -4,30 +4,13 @@
 
 macOS window switcher built with Rust + Tauri 2. Keyboard-driven fuzzy search palette. Background app (menu bar only, no Dock icon).
 
-## Architecture
-
-```
-src/                        Frontend (vanilla TypeScript + Vite)
-  main.ts                   All UI logic: rendering, keyboard handling, Tauri IPC
-  style.css                 Palette styles — dark, blurred, mouseless
-src-tauri/src/
-  lib.rs                    App entry: tray setup, hotkey registration, Tauri builder
-  permissions.rs            AX permission check + system prompt on startup
-  windows/
-    mod.rs                  Tauri commands: list_windows, activate_window
-    enumerate.rs            CGWindowList + AXUIElement title enrichment
-    activate.rs             NSRunningApplication.activate + AXRaise
-    types.rs                WindowInfo struct
-  search/mod.rs             nucleo-matcher fuzzy search
-  mru/mod.rs                In-memory MRU ring buffer
-```
-
 ## Build Commands
 
 ```sh
 make dev        # cargo tauri dev
 make build      # cargo tauri build
-make install    # npm install
+make install    # cp production .app to /Applications
+make npm-install # npm install
 make lint       # clippy + tsc --noEmit
 make fmt        # cargo fmt + prettier
 make clean      # remove target/, node_modules/, dist/
@@ -39,13 +22,24 @@ make clean      # remove target/, node_modules/, dist/
 
 **Window activation**: `NSRunningApplication.activateWithOptions:` (brings app to front, handles Spaces) → `AXUIElementPerformAction(kAXRaiseAction)` on the first AX window.
 
-**Global hotkey**: `Cmd+Ctrl+Space` via `tauri-plugin-global-shortcut`. Registered in `lib.rs` setup block. Emits `palette-opened` event to frontend on show.
+**Global hotkey**: `Cmd+Alt+P` via `tauri-plugin-global-shortcut`. Registered in `hotkey.rs`. Emits `palette-opened` event to frontend on show.
 
 **Tray icon**: `TrayIconBuilder` from Tauri 2 core (`tray-icon` feature). PNG embedded at compile time via `include_bytes!`. `icon_as_template(true)` for macOS light/dark mode.
 
 **Dock hiding**: `NSApp.setActivationPolicy_(.Accessory)` called in setup, before window is shown.
 
 **MRU**: `static Mutex<Vec<(bundle_id_or_name, title)>>`. Updated on every `activate_window` call. Applied as sort key when query is empty.
+
+## Permissions & TCC
+
+macOS TCC (privacy) grants are path- and bundle-ID-specific. Dev and production builds must have distinct identifiers to avoid conflicts:
+
+- **Dev** (`make dev`): `Conjure Dev` / `com.davidalecrim.conjure-dev`
+- **Production** (`make build && make install`): `Conjure` / `com.davidalecrim.conjure`
+
+`make install` copies to `/Applications/Conjure.app`. Always install there before granting Accessibility — TCC ties the grant to the app path. To reset a stale grant: `tccutil reset Accessibility com.davidalecrim.conjure`.
+
+Window titles come from `kAXTitleAttribute` via the AX API — **only Accessibility permission is required**, not Screen Recording.
 
 ## Conventions
 

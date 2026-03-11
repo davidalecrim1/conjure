@@ -50,3 +50,13 @@ pub fn hide_palette(app: AppHandle) {
 pub fn set_include_minimized(include: bool) {
     INCLUDE_MINIMIZED.store(include, Ordering::Relaxed);
 }
+
+#[tauri::command]
+pub fn resize_palette(app: AppHandle, height: u32) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: 780.0,
+            height: height as f64,
+        }));
+    }
+}

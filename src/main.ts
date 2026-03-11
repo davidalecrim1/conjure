@@ -30,6 +30,12 @@ async function loadWindows(query: string) {
   render();
 }
 
+async function updateWindowSize() {
+  const paletteEl = document.getElementById("palette")!;
+  const height = Math.ceil(paletteEl.getBoundingClientRect().height);
+  await invoke("resize_palette", { height });
+}
+
 function render() {
   resultsEl.innerHTML = "";
 
@@ -38,6 +44,7 @@ function render() {
     li.className = "empty-state";
     li.textContent = "No windows found";
     resultsEl.appendChild(li);
+    updateWindowSize();
     return;
   }
 
@@ -65,7 +72,7 @@ function render() {
     if (w.title) {
       const titleSpan = document.createElement("span");
       titleSpan.className = "result-title";
-      titleSpan.textContent = " " + w.title;
+      titleSpan.textContent = w.title;
       textWrap.appendChild(titleSpan);
     }
 
@@ -82,6 +89,7 @@ function render() {
   }
 
   scrollSelectedIntoView();
+  updateWindowSize();
 }
 
 function scrollSelectedIntoView() {
@@ -146,12 +154,7 @@ document.addEventListener("keydown", async (e) => {
       break;
     case "Escape":
       e.preventDefault();
-      if (searchEl.value) {
-        searchEl.value = "";
-        loadWindows("");
-      } else {
-        await hidePalette();
-      }
+      await hidePalette();
       break;
   }
 }, { capture: true });

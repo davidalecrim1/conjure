@@ -34,6 +34,7 @@ pub fn run() {
             windows::activate_window,
             palette::hide_palette,
             palette::set_include_minimized,
+            palette::resize_palette,
         ])
         .run(tauri::generate_context!())
         .expect("error while running conjure");
