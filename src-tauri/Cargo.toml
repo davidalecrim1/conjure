@@ -9,6 +9,9 @@ edition = "2021"
 name = "conjure_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[dev-dependencies]
+accessibility-sys = "0.1"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

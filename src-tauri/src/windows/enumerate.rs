@@ -375,3 +375,33 @@ fn cf_dict_string(dict: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Op
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::strip_app_prefix;
+
+    #[test]
+    fn strip_em_dash_separator() {
+        assert_eq!(strip_app_prefix("Zed \u{2014} conjure", "Zed"), "conjure");
+    }
+
+    #[test]
+    fn strip_ascii_hyphen_separator() {
+        assert_eq!(strip_app_prefix("Terminal - bash", "Terminal"), "bash");
+    }
+
+    #[test]
+    fn strip_en_dash_separator() {
+        assert_eq!(strip_app_prefix("App \u{2013} title", "App"), "title");
+    }
+
+    #[test]
+    fn strip_no_match_returns_original() {
+        assert_eq!(strip_app_prefix("Firefox", "Safari"), "Firefox");
+    }
+
+    #[test]
+    fn strip_app_name_not_prefix() {
+        // "My Zed" does not start with "Zed " so title is unchanged
+        assert_eq!(strip_app_prefix("My Zed \u{2014} file", "Zed"), "My Zed \u{2014} file");
+    }
+}

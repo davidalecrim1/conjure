@@ -4,7 +4,7 @@ mod palette;
 mod permissions;
 mod search;
 mod tray;
-mod windows;
+pub mod windows;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

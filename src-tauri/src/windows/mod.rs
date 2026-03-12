@@ -1,5 +1,5 @@
 mod activate;
-mod enumerate;
+pub mod enumerate;
 pub mod types;
 
 use std::sync::{LazyLock, Mutex};

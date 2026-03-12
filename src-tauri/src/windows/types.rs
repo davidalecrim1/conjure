@@ -40,3 +40,20 @@ impl WindowInfo {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::WindowInfo;
+
+    #[test]
+    fn display_text_with_title() {
+        let w = WindowInfo::new(1, "Zed".to_owned(), 100, "conjure".to_owned(), None, false, None);
+        assert_eq!(w.display_text, "Zed - conjure");
+    }
+
+    #[test]
+    fn display_text_empty_title() {
+        let w = WindowInfo::new(1, "Finder".to_owned(), 100, "".to_owned(), None, false, None);
+        assert_eq!(w.display_text, "Finder");
+    }
+}
