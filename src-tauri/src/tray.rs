@@ -29,7 +29,7 @@ fn set_launch_at_login(enable: bool) {
 }
 
 pub fn setup(app: &App) -> tauri::Result<()> {
-    let switch = MenuItem::with_id(app, "switch", "Switch Windows", true, None::<&str>)?;
+    let switch = MenuItem::with_id(app, "switch", "Switch Windows", true, Some("Cmd+Alt+P"))?;
     let show_minimized = CheckMenuItem::with_id(
         app,
         "show_minimized",
