@@ -26,4 +26,5 @@ accessibility-sys = "0.1"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSArray"] }
 objc2-app-kit = { version = "0.3", features = ["NSRunningApplication", "NSApplication", "NSImage", "NSBitmapImageRep"] }
+objc2-service-management = { version = "0.3", features = ["SMAppService"] }
 base64 = "0.22"
